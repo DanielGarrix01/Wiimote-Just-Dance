@@ -1,9 +1,9 @@
-from .event import ButtonEventJoyCon
-from .joycon import JoyCon
-from .wrappers import PythonicJoyCon  # as JoyCon
+from .event import ButtonEventWiimote
+from .wiimote import Wiimote
+from .wrappers import PythonicWiimote
 
 __all__ = [
-    "ButtonEventJoyCon",
-    "JoyCon",
-    "PythonicJoyCon",
+    "ButtonEventWiimote",
+    "Wiimote",
+    "PythonicWiimote",
 ]

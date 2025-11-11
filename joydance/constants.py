@@ -6,13 +6,14 @@ UBI_SKU_ID = 'jdcompanion-android'
 
 
 class WsSubprotocolVersion(Enum):
-    V1 = 'v1',
-    V2 = 'v2',
+    V1 = 'v1'
+    V2 = 'v2'
 
 
-WS_SUBPROTOCOLS = {}
-WS_SUBPROTOCOLS[WsSubprotocolVersion.V1.value] = 'v1.phonescoring.jd.ubisoft.com'
-WS_SUBPROTOCOLS[WsSubprotocolVersion.V2.value] = 'v2.phonescoring.jd.ubisoft.com'
+WS_SUBPROTOCOLS = {
+    WsSubprotocolVersion.V1.value: 'v1.phonescoring.jd.ubisoft.com',
+    WsSubprotocolVersion.V2.value: 'v2.phonescoring.jd.ubisoft.com',
+}
 
 FRAME_DURATION = 0.015
 SEND_FREQ_MS = 0.05
@@ -29,107 +30,48 @@ DEFAULT_CONFIG = {
 
 
 class Command(Enum):
+    # Movimientos del juego
     UP = 3690595578
     RIGHT = 1099935642
     DOWN = 2467711647
     LEFT = 3652315484
-    ACCEPT = 1084313942
 
+    # Confirmar / retroceder
+    ACCEPT = 'ACCEPT'
+    BACK = 'BACK'
+
+    # Pausa / opciones
     PAUSE = 'PAUSE'
+    OPTIONS = 'OPTIONS'
 
-    BACK = 'SHORTCUT_BACK'
-    CHANGE_DANCERCARD = 'SHORTCUT_CHANGE_DANCERCARD'
-    DONT_SHOW_ANYMORE = 'SHORTCUT_DONT_SHOW_ANYMORE'
-    FAVORITE = 'SHORTCUT_FAVORITE'
-    GOTO_SONGSTAB = 'SHORTCUT_GOTO_SONGSTAB'
-    SKIP = 'SHORTCUT_SKIP'
-    SORTING = 'SHORTCUT_SORTING'
-    SWAP_GENDER = 'SHORTCUT_SWAP_GENDER'
-    SWEAT_ACTIVATION = 'SHORTCUT_SWEAT_ACTIVATION'
-    TOGGLE_COOP = 'SHORTCUT_TOGGLE_COOP'
-    UPLAY = 'SHORTCUT_UPLAY'
-
-    ACTIVATE_DANCERCARD = 'SHORTCUT_ACTIVATE_DANCERCARD'
-    DELETE_DANCERCARD = 'SHORTCUT_DELETE_DANCERCARD'
-
-    DELETE_PLAYLIST = 'SHORTCUT_DELETE_PLAYLIST'
-    SAVE_PLAYLIST = 'SHORTCUT_SAVE_PLAYLIST'
-    PLAYLIST_RENAME = 'SHORTCUT_PLAYLIST_RENAME'
-    PLAYLIST_DELETE_SONG = 'SHORTCUT_PLAYLIST_DELETE_SONG'
-    PLAYLIST_MOVE_SONG_LEFT = 'SHORTCUT_PLAYLIST_MOVE_SONG_LEFT'
-    PLAYLIST_MOVE_SONG_RIGHT = 'SHORTCUT_PLAYLIST_MOVE_SONG_RIGHT'
-
-    TIPS_NEXT = 'SHORTCUT_TIPS_NEXT'
-    TIPS_PREVIOUS = 'SHORTCUT_TIPS_PREVIOUS'
+    # Cambiar entre botones favoritos o bailar
+    CHANGE_BUTTONS = 'CHANGE_BUTTONS'
 
 
-class JoyConButton(Enum):
-    # Joy-Con (L)
-    UP = 'up'
-    RIGHT = 'right'
-    DOWN = 'down'
-    LEFT = 'left'
-    L = 'l'
-    ZL = 'zl'
-    MINUS = 'minus'
-    CAPTURE = 'capture'
-    LEFT_STICK = 'stick_l_btn'
-    LEFT_SR = 'left_sr'
-    LEFT_SL = 'left_sl'
-
-    # Joy-Con (R)
+class WiimoteButton(Enum):
+    # Botones físicos del Wiimote
     A = 'a'
     B = 'b'
-    X = 'x'
-    Y = 'y'
-    R = 'r'
-    ZR = 'zr'
     PLUS = 'plus'
-    HOME = 'home'
-    RIGHT_STICK = 'stick_r_btn'
-    RIGHT_SL = 'right_sl'
-    RIGHT_SR = 'right_sr'
-    CHARGING_GRIP = 'charging-grip'
+    MINUS = 'minus'
+    ONE = '1'
+    TWO = '2'
+    UP = 'up'
+    DOWN = 'down'
+    LEFT = 'left'
+    RIGHT = 'right'
 
 
-# Assign buttons on Joy-Con (R) with commands
+# Asignación de botones del Wiimote a comandos de Just Dance
 SHORTCUT_MAPPING = {
-    JoyConButton.X: [
-        Command.DELETE_DANCERCARD,
-        Command.DELETE_PLAYLIST,
-        Command.GOTO_SONGSTAB,
-        Command.PLAYLIST_DELETE_SONG,
-        Command.SKIP,
-        Command.SORTING,
-        Command.SWAP_GENDER,
-        Command.TOGGLE_COOP,
-    ],
-    JoyConButton.Y: [
-        Command.ACTIVATE_DANCERCARD,
-        Command.CHANGE_DANCERCARD,
-        Command.SWEAT_ACTIVATION,
-        Command.UPLAY,
-    ],
-    JoyConButton.PLUS: [
-        Command.DONT_SHOW_ANYMORE,
-        Command.FAVORITE,
-        Command.PAUSE,
-        Command.PLAYLIST_RENAME,
-        Command.SAVE_PLAYLIST,
-    ],
-    JoyConButton.R: [
-        Command.PLAYLIST_MOVE_SONG_LEFT,
-        Command.TIPS_PREVIOUS,
-    ],
-    JoyConButton.ZR: [
-        Command.PLAYLIST_MOVE_SONG_RIGHT,
-        Command.TIPS_NEXT,
-    ],
+    WiimoteButton.A: [Command.ACCEPT],
+    WiimoteButton.B: [Command.BACK],
+    WiimoteButton.PLUS: [Command.PAUSE],
+    WiimoteButton.MINUS: [Command.OPTIONS],
+    WiimoteButton.ONE: [Command.CHANGE_BUTTONS],
+    WiimoteButton.TWO: [Command.CHANGE_BUTTONS],
+    WiimoteButton.UP: [Command.UP],
+    WiimoteButton.DOWN: [Command.DOWN],
+    WiimoteButton.LEFT: [Command.LEFT],
+    WiimoteButton.RIGHT: [Command.RIGHT],
 }
-
-# Same with Joy-Con (L)
-SHORTCUT_MAPPING[JoyConButton.UP] = SHORTCUT_MAPPING[JoyConButton.X]
-SHORTCUT_MAPPING[JoyConButton.LEFT] = SHORTCUT_MAPPING[JoyConButton.Y]
-SHORTCUT_MAPPING[JoyConButton.MINUS] = SHORTCUT_MAPPING[JoyConButton.PLUS]
-SHORTCUT_MAPPING[JoyConButton.L] = SHORTCUT_MAPPING[JoyConButton.R]
-SHORTCUT_MAPPING[JoyConButton.ZL] = SHORTCUT_MAPPING[JoyConButton.ZR]
