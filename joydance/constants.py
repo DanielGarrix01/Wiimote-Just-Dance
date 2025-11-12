@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import Enum, IntEnum
 
 JOYDANCE_VERSION = '0.5.2'
 UBI_APP_ID = '210da0fb-d6a5-4ed1-9808-01e86f0de7fb'
@@ -10,10 +10,7 @@ class WsSubprotocolVersion(Enum):
     V2 = 'v2'
 
 
-WS_SUBPROTOCOLS = {
-    WsSubprotocolVersion.V1.value: 'v1.phonescoring.jd.ubisoft.com',
-    WsSubprotocolVersion.V2.value: 'v2.phonescoring.jd.ubisoft.com',
-}
+WS_SUBPROTOCOLS = ['v1.phonescoring.jd.ubisoft.com', 'v2.phonescoring.jd.ubisoft.com']
 
 FRAME_DURATION = 0.015
 SEND_FREQ_MS = 0.05
@@ -30,48 +27,39 @@ DEFAULT_CONFIG = {
 
 
 class Command(Enum):
-    # Movimientos del juego
     UP = 3690595578
     RIGHT = 1099935642
     DOWN = 2467711647
     LEFT = 3652315484
-
-    # Confirmar / retroceder
-    ACCEPT = 'ACCEPT'
-    BACK = 'BACK'
-
-    # Pausa / opciones
+    ACCEPT = 1084313942
     PAUSE = 'PAUSE'
-    OPTIONS = 'OPTIONS'
-
-    # Cambiar entre botones favoritos o bailar
-    CHANGE_BUTTONS = 'CHANGE_BUTTONS'
+    BACK = 'SHORTCUT_BACK'
 
 
 class WiimoteButton(Enum):
-    # Botones físicos del Wiimote
+    """Enum para los botones del Wiimote"""
     A = 'a'
     B = 'b'
-    PLUS = 'plus'
+    ONE = 'one'
+    TWO = 'two'
     MINUS = 'minus'
-    ONE = '1'
-    TWO = '2'
+    PLUS = 'plus'
+    HOME = 'home'
     UP = 'up'
     DOWN = 'down'
     LEFT = 'left'
     RIGHT = 'right'
 
 
-# Asignación de botones del Wiimote a comandos de Just Dance
 SHORTCUT_MAPPING = {
-    WiimoteButton.A: [Command.ACCEPT],
-    WiimoteButton.B: [Command.BACK],
-    WiimoteButton.PLUS: [Command.PAUSE],
-    WiimoteButton.MINUS: [Command.OPTIONS],
-    WiimoteButton.ONE: [Command.CHANGE_BUTTONS],
-    WiimoteButton.TWO: [Command.CHANGE_BUTTONS],
-    WiimoteButton.UP: [Command.UP],
-    WiimoteButton.DOWN: [Command.DOWN],
-    WiimoteButton.LEFT: [Command.LEFT],
-    WiimoteButton.RIGHT: [Command.RIGHT],
+    'a': Command.ACCEPT,
+    'b': Command.BACK,
+    'plus': Command.PAUSE,
+    'minus': Command.BACK,
+    'one': Command.ACCEPT,
+    'two': Command.BACK,
+    'up': Command.UP,
+    'down': Command.DOWN,
+    'left': Command.LEFT,
+    'right': Command.RIGHT,
 }

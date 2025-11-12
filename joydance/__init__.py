@@ -14,7 +14,7 @@ import websockets
 from .constants import (ACCEL_ACQUISITION_FREQ_HZ, ACCEL_ACQUISITION_LATENCY,
                         ACCEL_MAX_RANGE, FRAME_DURATION, SHORTCUT_MAPPING,
                         UBI_APP_ID, UBI_SKU_ID, WS_SUBPROTOCOLS, Command,
-                        JoyConButton, WsSubprotocolVersion)
+                        WiimoteButton, WsSubprotocolVersion)
 
 
 class PairingState(Enum):
@@ -334,14 +334,14 @@ class JoyDance:
                     if status == 0:  # 0 = pressed, 1 = released
                         continue
 
-                    joycon_button = JoyConButton(event_type)
+                    joycon_button = WiimoteButton(event_type)
                     if self.should_start_accelerometer:  # Only allow to send Pause command while playing
-                        if joycon_button == JoyConButton.PLUS or joycon_button == JoyConButton.MINUS:
+                        if joycon_button == WiimoteButton.PLUS or joycon_button == WiimoteButton.MINUS:
                             cmd = Command.PAUSE
                     else:
-                        if joycon_button == JoyConButton.A or joycon_button == JoyConButton.RIGHT:
+                        if joycon_button == WiimoteButton.A or joycon_button == WiimoteButton.RIGHT:
                             cmd = Command.ACCEPT
-                        elif joycon_button == JoyConButton.B or joycon_button == JoyConButton.DOWN:
+                        elif joycon_button == WiimoteButton.B or joycon_button == WiimoteButton.DOWN:
                             cmd = Command.BACK
                         elif joycon_button in SHORTCUT_MAPPING:
                             # Get command depends on which button is being pressed & which shortcuts are available

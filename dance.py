@@ -6,314 +6,418 @@ import ssl
 import time
 import traceback
 from enum import Enum
-from urllib.parse import urlparse
 
 import aiohttp
+from aiohttp import web
 import websockets
 
-from joydance.constants import ( 
+from joydance.constants import (
     ACCEL_ACQUISITION_FREQ_HZ, ACCEL_ACQUISITION_LATENCY,
     ACCEL_MAX_RANGE, FRAME_DURATION, SHORTCUT_MAPPING,
     UBI_APP_ID, UBI_SKU_ID, WS_SUBPROTOCOLS, Command,
-    WsSubprotocolVersion
-)
-from pycon.wiimote import Wiimote, WiimoteButton
+    WsSubprotocolVersion, WiimoteButton)
+from pycon.wiimote import Wiimote
 
 
-class PairingState(Enum):
-    IDLE = 0
-    GETTING_TOKEN = 1
-    PAIRING = 2
-    CONNECTING = 3
-    CONNECTED = 4
-    DISCONNECTING = 5
-    DISCONNECTED = 10
-    ERROR_JOYCON = 101
-    ERROR_CONNECTION = 102
-    ERROR_INVALID_PAIRING_CODE = 103
-    ERROR_PUNCH_PAIRING = 104
-    ERROR_HOLE_PUNCHING = 105
-    ERROR_CONSOLE_CONNECTION = 106
+class State(Enum):
+    DISCONNECTED = 0
+    IDLE = 1
+    PENDING = 2
+    CONNECTED = 3
+    DANCING = 4
 
 
 class WiimoteDance:
-    def __init__(
-            self,
-            wiimote: Wiimote,
-            protocol_version,
-            pairing_code=None,
-            host_ip_addr=None,
-            console_ip_addr=None,
-            accel_acquisition_freq_hz=ACCEL_ACQUISITION_FREQ_HZ,
-            accel_acquisition_latency=ACCEL_ACQUISITION_LATENCY,
-            accel_max_range=ACCEL_MAX_RANGE,
-            on_state_changed=None
-    ):
+    def __init__(self, wiimote, protocol_version, pairing_id=None, pairing_code=None, on_state_changed=None):
         self.wiimote = wiimote
         self.protocol_version = protocol_version
+        self.pairing_id = pairing_id or str(random.randint(0, 0xFFFFFFFF))
         self.pairing_code = pairing_code
-        self.host_ip_addr = host_ip_addr
-        self.console_ip_addr = console_ip_addr
-        self.host_port = random.randrange(39000, 39999)
-        self.tls_certificate = None
-        self.accel_acquisition_freq_hz = accel_acquisition_freq_hz
-        self.accel_acquisition_latency = accel_acquisition_latency
-        self.accel_max_range = accel_max_range
-        self.number_of_accels_sent = 0
-        self.should_start_accelerometer = False
-        self.is_input_allowed = False
-        self.available_shortcuts = set()
-        self.accel_data = []
+        self.state = State.IDLE
         self.ws = None
-        self.console_conn = None
-        self.disconnected = False
-        self.headers = {'Ubi-AppId': UBI_APP_ID, 'X-SkuId': UBI_SKU_ID}
+        self.ws_url = None
+        self.last_phone_accel_sent_at = 0
+        
         if on_state_changed:
             self.on_state_changed = on_state_changed
+        else:
+            self.on_state_changed = self._default_state_changed
 
-    # -------------------------------
-    # Token / Pairing
-    # -------------------------------
-    async def get_access_token(self):
+    async def _default_state_changed(self, state):
+        print(f"[Estado] {state.name}")
+
+    def change_state(self, state):
+        if state == self.state:
+            return
+        self.state = state
+        asyncio.create_task(self.on_state_changed(state))
+
+    async def pair(self):
+        self.change_state(State.PENDING)
+
+        if self.protocol_version == WsSubprotocolVersion.V2:
+            await self.pair_with_code()
+        else:
+            await self.pair_v1()
+
+    async def pair_with_code(self):
+        """Emparejamiento V2 con código (JD 2018+)"""
+        url = f'https://jmcs-controller-api.just-dance.com/pair/{self.pairing_code}'
         headers = {
-            'Authorization': 'UbiMobile_v1 t=TOKEN_FICTICIO',
-            'Ubi-AppId': UBI_APP_ID,
-            'User-Agent': 'UbiServices_SDK_Unity_Light_Mobile_2018.Release.16_ANDROID64_dynamic',
-            'Ubi-RequestedPlatformType': 'ubimobile',
-            'Content-Type': 'application/json',
+            'X-SkuId': UBI_SKU_ID,
         }
-        async with aiohttp.ClientSession(headers=headers) as session:
-            async with session.post('https://public-ubiservices.ubi.com/v1/profiles/sessions', json={}, ssl=False) as resp:
-                if resp.status != 200:
-                    await self.on_state_changed(PairingState.ERROR_CONNECTION)
-                    raise Exception("No se pudo obtener token")
-                data = await resp.json()
-                self.headers['Authorization'] = 'Ubi_v1 ' + data['ticket']
 
-    async def send_pairing_code(self):
-        url = 'https://prod.just-dance.com/sessions/v1/pairing-info'
-        async with aiohttp.ClientSession(headers=self.headers) as session:
-            async with session.get(url, params={'code': self.pairing_code}, ssl=False) as resp:
-                if resp.status != 200:
-                    await self.on_state_changed(PairingState.ERROR_INVALID_PAIRING_CODE)
-                    raise Exception("Código de emparejamiento inválido")
-                data = await resp.json()
-                self.pairing_url = data['pairingUrl'].replace('https://', 'wss://') + 'smartphone'
-                self.tls_certificate = data.get('tlsCertificate')
-                self.requires_punch_pairing = data.get('requiresPunchPairing', False)
-
-    async def send_initiate_punch_pairing(self):
-        url = 'https://prod.just-dance.com/sessions/v1/initiate-punch-pairing'
-        payload = {
-            'pairingCode': self.pairing_code,
-            'mobileIP': self.host_ip_addr,
-            'mobilePort': self.host_port,
-        }
-        async with aiohttp.ClientSession(headers=self.headers) as session:
-            async with session.post(url, json=payload, ssl=False) as resp:
-                text = await resp.text()
-                if text != 'OK':
-                    await self.on_state_changed(PairingState.ERROR_PUNCH_PAIRING)
-                    raise Exception("No se pudo iniciar punch pairing")
-
-    async def hole_punching(self):
         try:
-            conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            conn.settimeout(10)
-            conn.bind(('0.0.0.0', self.host_port))
-            conn.listen(5)
-            console_conn, addr = conn.accept()
-            self.console_conn = console_conn
-            print(f'Connected with {addr[0]}:{addr[1]}')
-        except Exception:
-            await self.on_state_changed(PairingState.ERROR_HOLE_PUNCHING)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers) as resp:
+                    if resp.status != 200:
+                        print(f'Error al emparejar: {resp.status}')
+                        self.change_state(State.IDLE)
+                        return
+
+                    result = await resp.json()
+                    self.ws_url = result['jdcsUrl']
+        except Exception as e:
+            print(f'Error de emparejamiento: {e}')
+            self.change_state(State.IDLE)
+            return
+
+        await self.connect()
+
+    async def pair_v1(self):
+        """Emparejamiento V1 directo por IP (JD 2016-2019)"""
+        if not self.pairing_id:
+            print('Error: Se requiere una IP para emparejamiento V1')
+            self.change_state(State.IDLE)
+            return
+
+        # Enviando descubrimiento UDP a {self.pairing_id}:6000...
+        print(f'Enviando descubrimiento UDP a {self.pairing_id}:6000...')
+        udp_success = await self.udp_discovery(self.pairing_id)
+        
+        if udp_success:
+            print('Descubrimiento UDP exitoso')
+        else:
+            print('Advertencia: No hubo respuesta UDP, intentando de todas formas...')
+        
+        # Pequeña espera para que Just Dance procese el descubrimiento
+        await asyncio.sleep(1)
+
+        print(f'Intentando descubrimiento HTTP en {self.pairing_id}...')
+        discovered = await self.http_discovery(self.pairing_id)
+        
+        if not discovered:
+            print('Advertencia: No se pudo hacer descubrimiento HTTP, intentando WebSocket directo...')
+        
+        ports_to_try = [8080, 50000, 50001]
+        paths_to_try = ['', '/ws', '/websocket', '/controller', '/phone']
+        
+        for port in ports_to_try:
+            for path in paths_to_try:
+                test_url = f'ws://{self.pairing_id}:{port}{path}'
+                print(f'Probando {test_url}...')
+                self.ws_url = test_url
+                
+                try:
+                    await self.connect()
+                    print(f'Conexion exitosa en {test_url}')
+                    return
+                except websockets.exceptions.InvalidStatusCode as e:
+                    print(f'  Puerto {port}{path} - HTTP {e.status_code}')
+                except Exception as e:
+                    error_msg = str(e)[:80]
+                    print(f'  Puerto {port}{path} - {type(e).__name__}: {error_msg}')
+                    continue
+        
+        print('Error: No se pudo conectar en ninguna combinacion de puerto/path')
+        self.change_state(State.IDLE)
+
+    async def udp_discovery(self, ip):
+        """Envía mensaje de descubrimiento UDP al puerto 6000"""
+        try:
+            loop = asyncio.get_event_loop()
+            
+            # Crear socket UDP
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            sock.settimeout(2.0)
+            
+            # Mensaje de descubrimiento (puede variar según el protocolo)
+            discovery_messages = [
+                b'DISCOVER',
+                b'JDCONTROLLER',
+                json.dumps({
+                    'type': 'discover',
+                    'deviceId': self.pairing_id
+                }).encode('utf-8'),
+                json.dumps({
+                    'msg': 'discover'
+                }).encode('utf-8')
+            ]
+            
+            for message in discovery_messages:
+                try:
+                    # Enviar mensaje de descubrimiento
+                    sock.sendto(message, (ip, 6000))
+                    print(f'  Enviado UDP: {message[:50]}')
+                    
+                    # Intentar recibir respuesta
+                    sock.settimeout(1.0)
+                    try:
+                        data, addr = sock.recvfrom(1024)
+                        print(f'  Respuesta UDP de {addr}: {data[:100]}')
+                        sock.close()
+                        return True
+                    except socket.timeout:
+                        continue
+                except Exception as e:
+                    print(f'  Error UDP con mensaje {message[:20]}: {type(e).__name__}')
+                    continue
+            
+            sock.close()
+            return False
+            
+        except Exception as e:
+            print(f'Error en descubrimiento UDP: {e}')
+            return False
+
+    async def http_discovery(self, ip):
+        """Intenta descubrimiento HTTP antes del WebSocket"""
+        endpoints = [
+            f'http://{ip}:8080/',
+            f'http://{ip}:8080/discovery',
+            f'http://{ip}:8080/connect',
+            f'http://{ip}:8080/api',
+        ]
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                for endpoint in endpoints:
+                    try:
+                        async with session.get(endpoint, timeout=aiohttp.ClientTimeout(total=2)) as resp:
+                            print(f'  HTTP {endpoint} - Status {resp.status}')
+                            if resp.status in [200, 201, 204]:
+                                text = await resp.text()
+                                print(f'  Respuesta: {text[:100]}')
+                                return True
+                    except Exception as e:
+                        print(f'  HTTP {endpoint} - {type(e).__name__}')
+                        continue
+        except Exception as e:
+            print(f'Error en descubrimiento HTTP: {e}')
+        
+        return False
+
+    async def connect(self):
+        """Conecta al servidor WebSocket de Just Dance"""
+        if not self.ws_url:
+            print('Error: No hay URL de WebSocket')
+            return
+
+        try:
+            ssl_context = None
+            if self.ws_url.startswith('wss://'):
+                ssl_context = ssl.create_default_context()
+
+            subprotocol = 'v2' if self.protocol_version == WsSubprotocolVersion.V2 else 'v1'
+            
+            self.ws = await asyncio.wait_for(
+                websockets.connect(
+                    self.ws_url,
+                    subprotocols=[subprotocol],
+                    ssl=ssl_context,
+                    ping_interval=None  # Desactivar ping automático
+                ),
+                timeout=3.0  # Timeout de 3 segundos
+            )
+
+            self.change_state(State.CONNECTED)
+            print(f'Conectado exitosamente a {self.ws_url}')
+
+            await asyncio.gather(
+                self.send_ping(),
+                self.send_command(),
+                self.receive_message()
+            )
+
+        except asyncio.TimeoutError:
+            print(f'Timeout al conectar')
+            self.change_state(State.IDLE)
+            raise
+        except Exception as e:
+            print(f'Error de conexión: {type(e).__name__}: {e}')
+            self.change_state(State.IDLE)
             raise
 
-    # -------------------------------
-    # Acelerómetro
-    # -------------------------------
-    async def collect_accelerometer_data(self):
-        if not self.should_start_accelerometer:
-            self.accel_data = []
-            return
-        try:
-            accels = self.wiimote.get_accels()
-            self.accel_data += accels
-        except OSError:
-            await self.disconnect()
-
-    async def send_accelerometer_data(self, frames):
-        if not self.should_start_accelerometer or frames < 3:
-            return
-        tmp_accel_data = []
-        while self.accel_data:
-            tmp_accel_data.append(self.accel_data.pop(0))
-        while tmp_accel_data:
-            batch = tmp_accel_data[:10]
-            await self.send_message('JD_PhoneScoringData', {
-                'accelData': batch,
-                'timeStamp': self.number_of_accels_sent
-            })
-            self.number_of_accels_sent += len(batch)
-            tmp_accel_data = tmp_accel_data[10:]
-
-    # -------------------------------
-    # Comandos y shortcuts
-    # -------------------------------
-    async def send_command(self):
-        while True:
-            if self.disconnected:
-                return
-            await asyncio.sleep(FRAME_DURATION)
-            if not self.is_input_allowed and not self.should_start_accelerometer:
-                continue
-            cmd = None
-            for event_type, status in self.wiimote.events():
-                if status == 0:  # released
-                    continue
-                button = WiimoteButton(event_type)
-                if self.should_start_accelerometer:
-                    if button in [WiimoteButton.PLUS, WiimoteButton.MINUS]:
-                        cmd = Command.PAUSE
-                else:
-                    if button in [WiimoteButton.A, WiimoteButton.RIGHT]:
-                        cmd = Command.ACCEPT
-                    elif button in [WiimoteButton.B, WiimoteButton.DOWN]:
-                        cmd = Command.BACK
-                    elif button in SHORTCUT_MAPPING:
-                        for shortcut in SHORTCUT_MAPPING[button]:
-                            if shortcut in self.available_shortcuts:
-                                cmd = shortcut
-                                break
-            if cmd and self.is_input_allowed:
-                data = {}
-                if cmd == Command.PAUSE:
-                    cls = 'JD_Pause_PhoneCommandData'
-                elif type(cmd.value) == str:
-                    cls = 'JD_Custom_PhoneCommandData'
-                    data['identifier'] = cmd.value
-                else:
-                    cls = 'JD_Input_PhoneCommandData'
-                    data['input'] = cmd.value
-                await self.send_message(cls, data)
-
-    # -------------------------------
-    # WebSocket y mensajes
-    # -------------------------------
-    async def send_message(self, __class, data={}):
-        msg = {'root': {'__class': __class}}
-        if data:
-            msg['root'].update(data)
-        try:
-            await self.ws.send(json.dumps(msg, separators=(',', ':')))
-        except Exception:
-            await self.disconnect()
-
-    async def on_message(self, message):
-        message = json.loads(message)
-        __class = message['__class']
-        if __class == 'JD_EnableAccelValuesSending_ConsoleCommandData':
-            self.should_start_accelerometer = True
-            self.number_of_accels_sent = 0
-        elif __class == 'JD_DisableAccelValuesSending_ConsoleCommandData':
-            self.should_start_accelerometer = False
-        elif __class == 'InputSetup_ConsoleCommandData':
-            self.is_input_allowed = (message.get('isEnabled', 0) == 1)
-        elif __class == 'ShortcutSetup_ConsoleCommandData':
-            self.is_input_allowed = (message.get('isEnabled', 0) == 1)
-        elif __class == 'JD_PhoneUiShortcutData':
-            shortcuts = set()
-            for item in message.get('shortcuts', []):
-                if item['__class'] == 'JD_PhoneAction_Shortcut':
-                    try:
-                        shortcuts.add(Command(item['shortcutType']))
-                    except Exception:
-                        pass
-            self.available_shortcuts = shortcuts
-
-    # -------------------------------
-    # Tick y loop
-    # -------------------------------
-    async def tick(self):
-        sleep_duration = FRAME_DURATION
-        frames = 0
-        while True:
-            if self.disconnected:
+    async def send_ping(self):
+        """Envía pings periódicos para mantener la conexión"""
+        while self.ws and not self.ws.closed:
+            try:
+                await self.ws.ping()
+                await asyncio.sleep(10)
+            except Exception as e:
+                print(f'Error al enviar ping: {e}')
                 break
-            if not self.should_start_accelerometer:
-                frames = 0
-                await asyncio.sleep(sleep_duration)
-                continue
-            last_time = time.time()
-            frames = frames + 1 if frames < 3 else 1
-            await asyncio.gather(
-                self.collect_accelerometer_data(),
-                self.send_accelerometer_data(frames)
-            )
-            dt = time.time() - last_time
-            sleep_duration = FRAME_DURATION - (dt - sleep_duration)
 
-    # -------------------------------
-    # Conexión
-    # -------------------------------
-    async def connect_ws(self):
-        ssl_ctx = None
-        server_hostname = None
-        if self.protocol_version != WsSubprotocolVersion.V1:
-            ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            ssl_ctx.check_hostname = False
-            ssl_ctx.verify_mode = ssl.CERT_NONE
-            if self.tls_certificate:
-                ssl_ctx.load_verify_locations(cadata=self.tls_certificate)
-            if self.pairing_url.startswith(('192.168.', '10.')) and self.console_conn:
-                server_hostname = self.console_conn.getpeername()[0]
-            else:
-                tmp = urlparse(self.pairing_url)
-                server_hostname = tmp.hostname
+    async def send_command(self):
+        """Envía comandos del Wiimote a Just Dance"""
+        while self.ws and not self.ws.closed:
+            try:
+                events = self.wiimote.events()
+                
+                for event_type, status in events:
+                    if status == 0:
+                        continue
 
-        subprotocol = WS_SUBPROTOCOLS[self.protocol_version.value]
-        async with websockets.connect(
-            self.pairing_url,
-            subprotocols=[subprotocol],
-            sock=self.console_conn,
-            ssl=ssl_ctx,
-            ping_timeout=None,
-            server_hostname=server_hostname
-        ) as ws:
-            self.ws = ws
-            await asyncio.gather(
-                self.send_hello(),
-                self.tick(),
-                self.send_command(),
-            )
+                    command = SHORTCUT_MAPPING.get(event_type)
+                    if command:
+                        await self._send_json({'command': command.value})
+                        print(f'[CMD] {command.name}')
 
-    async def send_hello(self):
-        await self.send_message('JD_PhoneDataCmdHandshakeHello', {
-            'accelAcquisitionFreqHz': float(self.accel_acquisition_freq_hz),
-            'accelAcquisitionLatency': float(self.accel_acquisition_latency),
-            'accelMaxRange': float(self.accel_max_range),
-        })
+                now = time.time()
+                if now - self.last_phone_accel_sent_at >= ACCEL_ACQUISITION_LATENCY:
+                    accels = self.wiimote.get_accels()
+                    await self._send_json({
+                        'phoneAccel': {
+                            'data': accels
+                        }
+                    })
+                    self.last_phone_accel_sent_at = now
 
-    # -------------------------------
-    # Pair completo
-    # -------------------------------
-    async def pair(self):
+                await asyncio.sleep(FRAME_DURATION)
+
+            except Exception as e:
+                print(f'Error al enviar comando: {e}')
+                traceback.print_exc()
+                break
+
+    async def receive_message(self):
+        """Recibe mensajes del servidor"""
+        while self.ws and not self.ws.closed:
+            try:
+                message = await self.ws.recv()
+                data = json.loads(message)
+
+                if 'msg_id' in data:
+                    msg_id = data['msg_id']
+                    
+                    if msg_id == 5:
+                        self.change_state(State.DANCING)
+                        print('[INFO] Juego iniciado')
+                    
+                    elif msg_id == 6:
+                        self.change_state(State.CONNECTED)
+                        print('[INFO] Juego pausado')
+                    
+                    elif msg_id == 7:
+                        self.change_state(State.CONNECTED)
+                        print('[INFO] Juego terminado')
+
+            except websockets.exceptions.ConnectionClosed:
+                print('[INFO] Conexión cerrada')
+                break
+            except Exception as e:
+                print(f'Error al recibir mensaje: {e}')
+                break
+
+        self.change_state(State.DISCONNECTED)
+
+    async def _send_json(self, data):
+        """Envía datos JSON al servidor"""
+        if self.ws and not self.ws.closed:
+            await self.ws.send(json.dumps(data))
+
+
+routes = web.RouteTableDef()
+
+@routes.get('/')
+async def index(request):
+    return web.FileResponse('./static/index.html')
+
+@routes.post('/start')
+async def start_dance(request):
+    """Inicia el emparejamiento con Just Dance"""
+    try:
+        data = await request.json()
+        method = data.get('method')
+        value = data.get('value', '')
+
+        print(f'\n[INICIO] Método: {method}, Valor: {value}')
+
+        if method == 'code':
+            protocol_version = WsSubprotocolVersion.V2
+            pairing_code = value
+            pairing_id = None
+        elif method == 'old':
+            protocol_version = WsSubprotocolVersion.V1
+            pairing_code = None
+            pairing_id = value
+        else:
+            return web.json_response({'error': 'Método desconocido'}, status=400)
+
         try:
-            if self.console_ip_addr:
-                self.pairing_url = f'wss://{self.console_ip_addr}:8080/smartphone'
-            else:
-                await self.get_access_token()
-                await self.send_pairing_code()
-                if self.requires_punch_pairing:
-                    await self.send_initiate_punch_pairing()
-                    await self.hole_punching()
-            await self.connect_ws()
-        except Exception:
-            traceback.print_exc()
-            await self.disconnect()
+            wiimote = Wiimote()
+            print('Wiimote conectado')
+        except Exception as e:
+            print(f'Error al conectar Wiimote: {e}')
+            return web.json_response({'error': f'Error al conectar Wiimote: {e}'}, status=500)
 
-    async def disconnect(self):
-        self.disconnected = True
-        self.wiimote.__del__()
-        if self.ws:
-            await self.ws.close()
+        dancer = WiimoteDance(
+            wiimote=wiimote,
+            protocol_version=protocol_version,
+            pairing_code=pairing_code,
+            pairing_id=pairing_id
+        )
+
+        asyncio.create_task(dancer.pair())
+
+        return web.json_response({'status': 'ok'})
+
+    except Exception as e:
+        print(f'Error: {e}')
+        traceback.print_exc()
+        return web.json_response({'error': str(e)}, status=500)
+
+
+def get_local_ip():
+    """Obtiene la IP local de la PC"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except:
+        return '127.0.0.1'
+
+
+async def main():
+    print('=== Wiimote Just Dance Server ===')
+    
+    local_ip = get_local_ip()
+    port = 8000
+    
+    app = web.Application()
+    app.add_routes(routes)
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    
+    print(f'\nServidor iniciado')
+    print(f'  Abre en tu navegador: http://{local_ip}:{port}')
+    print(f'  O usa: http://localhost:{port}')
+    print(f'\nPresiona Ctrl+C para detener\n')
+    
+    try:
+        await asyncio.Event().wait()
+    except KeyboardInterrupt:
+        print('\n\nDeteniendo servidor...')
+
+
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print('Servidor detenido')

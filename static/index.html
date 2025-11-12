@@ -1,17 +1,310 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-    <title>JoyDance</title>
-    <meta charset="utf-8">
-    <link rel="icon" type="image/png" href="/favicon.png">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-    <link href="/css/pure-min.css" type="text/css" rel="stylesheet" />
-    <link href="/css/grids-responsive-min.css" type="text/css" rel="stylesheet" />
-    <link href="/css/app.css" type="text/css" rel="stylesheet" />
-    <script type="text/javascript">window.CONFIG = [[CONFIG]]; window.VERSION = '[[VERSION]]';</script>
-    <script type="text/javascript" src="/js/mitt.umd.js"></script>
-    <script type="module" src="/js/app.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wiimote Just Dance</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #667eea;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2em;
+        }
+
+        .method-selector {
+            margin-bottom: 30px;
+        }
+
+        .method-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        button {
+            flex: 1;
+            padding: 15px;
+            border: 2px solid #667eea;
+            background: white;
+            color: #667eea;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            background: #f0f0f0;
+        }
+
+        button.active {
+            background: #667eea;
+            color: white;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .quick-ip-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .quick-ip-btn {
+            padding: 8px 12px;
+            font-size: 14px;
+            background: #f0f0f0;
+            border: 1px solid #ddd;
+            color: #333;
+        }
+
+        .quick-ip-btn:hover {
+            background: #e0e0e0;
+        }
+
+        .connect-btn {
+            width: 100%;
+            padding: 15px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .connect-btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .connect-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: 500;
+            display: none;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .info-text {
+            color: #666;
+            font-size: 14px;
+            margin-top: 10px;
+            line-height: 1.5;
+        }
+
+        .info-box {
+            background: #e7f3ff;
+            border-left: 4px solid #667eea;
+            padding: 12px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+
+        .info-box p {
+            color: #333;
+            font-size: 14px;
+            margin: 5px 0;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
 </head>
 <body>
+    <div class="container">
+        <h1>Wiimote Just Dance</h1>
+        
+        <div class="method-selector">
+            <div class="method-buttons">
+                <button id="btn-code" class="method-btn">Código (2018+)</button>
+                <button id="btn-old" class="method-btn active">OLD (2017)</button>
+            </div>
+        </div>
+
+        <div class="input-group" id="input-code">
+            <label for="pairing-code">Código de emparejamiento (6 dígitos):</label>
+            <input type="text" id="pairing-code" placeholder="123456" maxlength="6">
+            <p class="info-text">Ingresa el código de 6 dígitos que aparece en Just Dance</p>
+        </div>
+
+        <div class="input-group hidden" id="input-old">
+            <label for="ip-address">IP local:</label>
+            <input type="text" id="ip-address" placeholder="127.0.0.1" value="127.0.0.1">
+            
+            <div class="quick-ip-buttons">
+                <button class="quick-ip-btn" onclick="document.getElementById('ip-address').value='127.0.0.1'">Localhost</button>
+                <button class="quick-ip-btn" onclick="document.getElementById('ip-address').value='192.168.1.1'">192.168.1.1</button>
+            </div>
+            
+            <div class="info-box">
+                <p><strong>Para Just Dance en esta PC:</strong> Usa 127.0.0.1</p>
+                <p><strong>Para Just Dance en otra PC:</strong> Ingresa su IP local</p>
+            </div>
+        </div>
+
+        <button class="connect-btn" id="connect-btn">Conectar Wiimote</button>
+
+        <div class="status" id="status"></div>
+    </div>
+
+    <script>
+        const btnCode = document.getElementById('btn-code');
+        const btnOld = document.getElementById('btn-old');
+        const inputCode = document.getElementById('input-code');
+        const inputOld = document.getElementById('input-old');
+        const connectBtn = document.getElementById('connect-btn');
+        const status = document.getElementById('status');
+        const pairingCode = document.getElementById('pairing-code');
+        const ipAddress = document.getElementById('ip-address');
+
+        let currentMethod = 'old';
+
+        // Cambiar entre métodos
+        btnCode.addEventListener('click', () => {
+            currentMethod = 'code';
+            btnCode.classList.add('active');
+            btnOld.classList.remove('active');
+            inputCode.classList.remove('hidden');
+            inputOld.classList.add('hidden');
+        });
+
+        btnOld.addEventListener('click', () => {
+            currentMethod = 'old';
+            btnOld.classList.add('active');
+            btnCode.classList.remove('active');
+            inputOld.classList.remove('hidden');
+            inputCode.classList.add('hidden');
+        });
+
+        // Conectar
+        connectBtn.addEventListener('click', async () => {
+            const value = currentMethod === 'code' ? pairingCode.value : ipAddress.value;
+
+            if (!value) {
+                showStatus('error', 'Por favor ingresa un valor');
+                return;
+            }
+
+            connectBtn.disabled = true;
+            connectBtn.textContent = 'Conectando...';
+            showStatus('info', 'Conectando con el Wiimote...');
+
+            try {
+                const response = await fetch('/start', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        method: currentMethod,
+                        value: value
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showStatus('success', 'Conectado! Revisa la consola para más detalles');
+                } else {
+                    showStatus('error', data.error || 'Error al conectar');
+                }
+            } catch (error) {
+                showStatus('error', 'Error de conexión: ' + error.message);
+            } finally {
+                connectBtn.disabled = false;
+                connectBtn.textContent = 'Conectar Wiimote';
+            }
+        });
+
+        function showStatus(type, message) {
+            status.className = `status ${type}`;
+            status.textContent = message;
+            status.style.display = 'block';
+        }
+
+        // Inicializar con método OLD seleccionado y localhost por defecto
+        inputOld.classList.remove('hidden');
+        inputCode.classList.add('hidden');
+    </script>
 </body>
 </html>
