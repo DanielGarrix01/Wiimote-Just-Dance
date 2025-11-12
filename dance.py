@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 import aiohttp
 import websockets
 
-from pycon.constants import (
+from joydance.constants import ( 
     ACCEL_ACQUISITION_FREQ_HZ, ACCEL_ACQUISITION_LATENCY,
     ACCEL_MAX_RANGE, FRAME_DURATION, SHORTCUT_MAPPING,
     UBI_APP_ID, UBI_SKU_ID, WS_SUBPROTOCOLS, Command,
